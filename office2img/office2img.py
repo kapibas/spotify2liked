@@ -1,37 +1,24 @@
-﻿#!/usr/bin/env python3
-"""
-Конвертер документов в изображения через Microsoft Office (Windows)
-Использует реальный Word и PowerPoint для 100% точности
-Поддерживает: PDF, DOCX, PPTX
-
-Требования: установленный Microsoft Office
-"""
-
-import fitz  # PyMuPDF для PDF
+﻿import fitz
 from pathlib import Path
 import win32com.client
 import pythoncom
 import time
 
-# ============ НАСТРОЙКИ ============
-DPI = 200  # Качество изображений (150-300)
-IMG_FORMAT = "png"  # png или jpg
+DPI = 200
+IMG_FORMAT = "png"
 OUTPUT_DIR = Path("screenshots")
-MODE = "images"  # "images" - конвертация в изображения, "text" - извлечение текста из PPTX
+MODE = "images"
 
-# Константы для Word
-WD_EXPORT_FORMAT_PDF = 17  # wdExportFormatPDF
+WD_EXPORT_FORMAT_PDF = 17
 
-# ============ УТИЛИТЫ ============
 def get_image_name(page_num: int, prefix: str = "page") -> str:
     """Возвращает порядковое имя файла"""
     return f"{prefix}_{page_num:03d}.{IMG_FORMAT}"
 
-# ============ PDF → PNG (через PyMuPDF) ============
 def convert_pdf(pdf_path: Path, output_dir: Path) -> None:
     """Конвертирует PDF в изображения"""
     if not pdf_path.exists():
-        print(f"  ⚠ Файл не найден: {pdf_path}")
+        print(f"  [WARNING] Файл не найден: {pdf_path}")
         return
     
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -50,19 +37,16 @@ def convert_pdf(pdf_path: Path, output_dir: Path) -> None:
             
             img_path = output_dir / get_image_name(page_num + 1, "page")
             pix.save(str(img_path))
-            print(f"    ✓ {img_path.name}")
-            
-            # Освобождаем память
+            print(f"    [OK] {img_path.name}")
             pix = None
     finally:
         if doc:
             doc.close()
 
-# ============ DOCX → PNG (через Word) ============
 def convert_docx(docx_path: Path, output_dir: Path, word_app) -> None:
     """Конвертирует DOCX через Microsoft Word"""
     if not docx_path.exists():
-        print(f"  ⚠ Файл не найден: {docx_path}")
+        print(f"  [WARNING] Файл не найден: {docx_path}")
         return
     
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -72,20 +56,17 @@ def convert_docx(docx_path: Path, output_dir: Path, word_app) -> None:
     temp_pdf = output_dir / "temp_export.pdf"
     
     try:
-        # Открываем документ
         doc_path = str(docx_path.resolve())
         doc = word_app.Documents.Open(doc_path, ReadOnly=True)
         
-        page_count = doc.ComputeStatistics(2)  # 2 = wdStatisticPages
+        page_count = doc.ComputeStatistics(2)
         print(f"  Страниц: {page_count}")
         
-        # Сохраняем весь документ как PDF
         doc.ExportAsFixedFormat(
             OutputFileName=str(temp_pdf.resolve()),
             ExportFormat=WD_EXPORT_FORMAT_PDF
         )
         
-        # Конвертируем PDF в изображения
         pdf_doc = fitz.open(str(temp_pdf))
         scale = DPI / 72.0
         matrix = fitz.Matrix(scale, scale)
@@ -96,53 +77,45 @@ def convert_docx(docx_path: Path, output_dir: Path, word_app) -> None:
             
             img_path = output_dir / get_image_name(page_num + 1, "page")
             pix.save(str(img_path))
-            print(f"    ✓ {img_path.name}")
-            
-            # Освобождаем память
+            print(f"    [OK] {img_path.name}")
             pix = None
         
     except Exception as e:
-        print(f"  ❌ Ошибка Word: {e}")
+        print(f"  [ERROR] Ошибка Word: {e}")
         import traceback
         traceback.print_exc()
     
     finally:
-        # Закрываем PDF документ
         if pdf_doc:
             pdf_doc.close()
         
-        # Удаляем временный PDF
         if temp_pdf.exists():
             try:
                 temp_pdf.unlink()
             except:
                 pass
         
-        # Закрываем Word документ
         if doc:
             try:
                 doc.Close(SaveChanges=False)
             except:
                 pass
 
-# ============ PPTX → TXT (извлечение текста) ============
 def extract_pptx_text(pptx_path: Path, all_text_list: list, ppt_app) -> None:
     """Извлекает весь текст из PPTX и добавляет в общий список"""
     if not pptx_path.exists():
-        print(f"  ⚠ Файл не найден: {pptx_path}")
+        print(f"  [WARNING] Файл не найден: {pptx_path}")
         return
     
     presentation = None
     
     try:
-        # Открываем презентацию
         prs_path = str(pptx_path.resolve())
         presentation = ppt_app.Presentations.Open(prs_path, ReadOnly=True, WithWindow=False)
         
         slide_count = presentation.Slides.Count
         print(f"  Слайдов: {slide_count}")
         
-        # Добавляем заголовок презентации
         all_text_list.append(f"\n\n{'='*80}")
         all_text_list.append(f"ПРЕЗЕНТАЦИЯ: {pptx_path.name}")
         all_text_list.append(f"Всего слайдов: {slide_count}")
@@ -155,7 +128,6 @@ def extract_pptx_text(pptx_path: Path, all_text_list: list, ppt_app) -> None:
             all_text_list.append(f"СЛАЙД {slide_num}")
             all_text_list.append(f"{'─'*60}\n")
             
-            # Извлекаем текст из всех фигур на слайде
             slide_text = []
             for shape in slide.Shapes:
                 if hasattr(shape, "TextFrame") and shape.HasTextFrame:
@@ -170,26 +142,23 @@ def extract_pptx_text(pptx_path: Path, all_text_list: list, ppt_app) -> None:
             else:
                 all_text_list.append("[Нет текста на слайде]")
             
-            print(f"    ✓ Слайд {slide_num} обработан")
+            print(f"    [OK] Слайд {slide_num} обработан")
         
     except Exception as e:
-        print(f"  ❌ Ошибка PowerPoint: {e}")
+        print(f"  [ERROR] Ошибка PowerPoint: {e}")
         import traceback
         traceback.print_exc()
     
     finally:
-        # Закрываем презентацию
         if presentation:
             try:
                 presentation.Close()
             except:
                 pass
 
-# ============ PPTX → PNG (через PowerPoint) ============
 def convert_pptx(pptx_path: Path, output_dir: Path, ppt_app) -> None:
-    """Конвертирует PPTX через Microsoft PowerPoint"""
     if not pptx_path.exists():
-        print(f"  ⚠ Файл не найден: {pptx_path}")
+        print(f"  [WARNING] Файл не найден: {pptx_path}")
         return
     
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -197,21 +166,17 @@ def convert_pptx(pptx_path: Path, output_dir: Path, ppt_app) -> None:
     presentation = None
     
     try:
-        # Открываем презентацию
         prs_path = str(pptx_path.resolve())
         presentation = ppt_app.Presentations.Open(prs_path, ReadOnly=True, WithWindow=False)
         
         slide_count = presentation.Slides.Count
         print(f"  Слайдов: {slide_count}")
         
-        # Экспортируем каждый слайд
         for slide_num in range(1, slide_count + 1):
             slide = presentation.Slides(slide_num)
-            
             img_path = output_dir / get_image_name(slide_num, "slide")
             
             try:
-                # Экспорт слайда как изображение
                 width = int(presentation.PageSetup.SlideWidth * DPI / 72)
                 height = int(presentation.PageSetup.SlideHeight * DPI / 72)
                 
@@ -222,69 +187,65 @@ def convert_pptx(pptx_path: Path, output_dir: Path, ppt_app) -> None:
                     height
                 )
                 
-                print(f"    ✓ {img_path.name}")
+                print(f"    [OK] {img_path.name}")
             
             except Exception as e:
-                print(f"    ⚠ Ошибка экспорта слайда {slide_num}: {e}")
+                print(f"    [WARNING] Ошибка экспорта слайда {slide_num}: {e}")
         
     except Exception as e:
-        print(f"  ❌ Ошибка PowerPoint: {e}")
+        print(f"  [ERROR] Ошибка PowerPoint: {e}")
         import traceback
         traceback.print_exc()
     
     finally:
-        # Закрываем презентацию
         if presentation:
             try:
                 presentation.Close()
             except:
                 pass
 
-# ============ ГЛАВНАЯ ФУНКЦИЯ ============
 def process_file(file_path: Path, all_text_list: list = None, word_app=None, ppt_app=None) -> None:
     """Обрабатывает один файл"""
     if not file_path.exists():
-        print(f"  ⚠ Файл не найден: {file_path}")
+        print(f"  [WARNING] Файл не найден: {file_path}")
         return
     
     ext = file_path.suffix.lower()
     output_dir = OUTPUT_DIR / file_path.stem
     
-    print(f"\n📄 {file_path.name}")
+    print(f"\n[FILE] {file_path.name}")
     
     try:
-        # Режим извлечения текста (только для PPTX)
         if MODE == "text":
             if ext in (".pptx", ".ppt"):
                 if ppt_app:
                     extract_pptx_text(file_path, all_text_list, ppt_app)
                 else:
-                    print("  ❌ PowerPoint не доступен")
+                    print("  [ERROR] PowerPoint не доступен")
             else:
-                print(f"  ⚠ Режим 'text' работает только с PPTX файлами")
+                print(f"  [WARNING] Режим 'text' работает только с PPTX файлами")
             return
         
-        # Режим конвертации в изображения
         if ext == ".pdf":
             convert_pdf(file_path, output_dir)
         elif ext in (".docx", ".doc"):
             if word_app:
                 convert_docx(file_path, output_dir, word_app)
             else:
-                print("  ❌ Word не доступен")
+                print("  [ERROR] Word не доступен")
         elif ext in (".pptx", ".ppt"):
             if ppt_app:
                 convert_pptx(file_path, output_dir, ppt_app)
             else:
-                print("  ❌ PowerPoint не доступен")
+                print("  [ERROR] PowerPoint не доступен")
         else:
-            print(f"  ⚠ Формат {ext} не поддерживается")
+            print(f"  [WARNING] Формат {ext} не поддерживается")
             return
         
-        print(f"  ✅ Готово: {output_dir}")
+        print(f"  [DONE] Готово: {output_dir}")
     
     except Exception as e:
-        print(f"  ❌ Ошибка: {e}")
+        print(f"  [ERROR] Ошибка: {e}")
         import traceback
         traceback.print_exc()
 
@@ -300,18 +261,18 @@ def check_office_installed(need_word: bool = True, need_ppt: bool = True) -> boo
             try:
                 word = win32com.client.Dispatch("Word.Application")
                 word.Quit()
-                print("✓ Microsoft Word найден")
+                print("[OK] Microsoft Word найден")
             except Exception as e:
-                print(f"✗ Microsoft Word не найден: {e}")
+                print(f"[ERROR] Microsoft Word не найден: {e}")
                 return False
         
         if need_ppt:
             try:
                 ppt = win32com.client.Dispatch("PowerPoint.Application")
                 ppt.Quit()
-                print("✓ Microsoft PowerPoint найден")
+                print("[OK] Microsoft PowerPoint найден")
             except Exception as e:
-                print(f"✗ Microsoft PowerPoint не найден: {e}")
+                print(f"[ERROR] Microsoft PowerPoint не найден: {e}")
                 return False
         
         try:
@@ -322,7 +283,7 @@ def check_office_installed(need_word: bool = True, need_ppt: bool = True) -> boo
         return True
     
     except Exception as e:
-        print(f"✗ Ошибка проверки Office: {e}")
+        print(f"[ERROR] Ошибка проверки Office: {e}")
         return False
 
 def main():
@@ -334,7 +295,6 @@ def main():
         print("  Конвертер документов через Microsoft Office")
     print("=" * 60)
     
-    # Ищем файлы в текущей папке
     script_dir = Path(__file__).parent
     
     if MODE == "text":
@@ -346,7 +306,7 @@ def main():
              if f.is_file() and f.suffix.lower() in supported_formats]
     
     if not files:
-        print("\n⚠ Не найдено файлов для обработки")
+        print("\n[WARNING] Не найдено файлов для обработки")
         if MODE == "text":
             print("Поддерживаемые форматы: PPTX, PPT")
         else:
@@ -355,22 +315,19 @@ def main():
     
     print(f"\nНайдено файлов: {len(files)}")
     
-    # Определяем нужные компоненты Office
     if MODE == "text":
         need_word, need_ppt = False, True
     else:
         need_word = any(f.suffix.lower() in (".docx", ".doc") for f in files)
         need_ppt = any(f.suffix.lower() in (".pptx", ".ppt") for f in files)
     
-    # Проверяем наличие Office
     if need_word or need_ppt:
         print("\nПроверка Microsoft Office...")
         if not check_office_installed(need_word, need_ppt):
-            print("\n⚠ Microsoft Office не установлен или недоступен")
+            print("\n[WARNING] Microsoft Office не установлен или недоступен")
             print("Для работы скрипта требуется установленный Office")
             return
     
-    # Инициализация COM и запуск Office приложений
     try:
         pythoncom.CoInitialize()
     except pythoncom.com_error:
@@ -380,7 +337,6 @@ def main():
     ppt_app = None
     
     try:
-        # Запускаем нужные приложения один раз
         if need_word:
             word_app = win32com.client.Dispatch("Word.Application")
             word_app.Visible = False
@@ -390,7 +346,6 @@ def main():
             ppt_app = win32com.client.Dispatch("PowerPoint.Application")
             ppt_app.Visible = 1
         
-        # Для режима text создаем общий список текста
         if MODE == "text":
             all_text = []
             all_text.append(f"{'#'*80}")
@@ -399,24 +354,20 @@ def main():
             all_text.append(f"  Всего файлов: {len(files)}")
             all_text.append(f"{'#'*80}")
             
-            # Обрабатываем каждый файл
             for file in files:
                 process_file(file, all_text, word_app, ppt_app)
             
-            # Сохраняем общий файл
             OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
             output_path = OUTPUT_DIR / "all_presentations.txt"
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write("\n".join(all_text))
             
-            print(f"\n  ✅ Общий файл сохранен: {output_path}")
+            print(f"\n  [DONE] Общий файл сохранен: {output_path}")
         else:
-            # Обрабатываем каждый файл
             for file in files:
                 process_file(file, None, word_app, ppt_app)
     
     finally:
-        # Закрываем приложения
         if word_app:
             try:
                 word_app.Quit()
@@ -429,7 +380,6 @@ def main():
             except:
                 pass
         
-        # Деинициализация COM
         try:
             pythoncom.CoUninitialize()
         except:
@@ -437,9 +387,9 @@ def main():
     
     print("\n" + "=" * 60)
     if MODE == "text":
-        print(f"✅ Общий текстовый файл сохранен в: {OUTPUT_DIR.resolve()}/all_presentations.txt")
+        print(f"[DONE] Общий текстовый файл сохранен в: {OUTPUT_DIR.resolve()}/all_presentations.txt")
     else:
-        print(f"✅ Все изображения сохранены в: {OUTPUT_DIR.resolve()}")
+        print(f"[DONE] Все изображения сохранены в: {OUTPUT_DIR.resolve()}")
     print("=" * 60)
 
 if __name__ == "__main__":
